@@ -1,13 +1,13 @@
 name: React App CI/CD
 
-# Run when code is pushed to master or a PR targets master
+# Trigger workflow on push or pull request targeting master
 on:
   push:
     branches: ["master"]
   pull_request:
     branches: ["master"]
 
-# Minimum permissions needed to check out the repository
+# Minimum permissions required to check out source code
 permissions:
   contents: read
 
@@ -16,7 +16,7 @@ env:
   DH_IMAGE: devops11-basic-reactjs
 
 jobs:
-  # Job 1: Verify that the React application builds successfully
+  # Job 1: Build and validate React application
   build:
     name: Install and Build React App
     runs-on: ubuntu-latest
@@ -37,26 +37,138 @@ jobs:
       - name: Build React app
         run: npm run build
 
-  # Job 2: Build and publish Docker image
+  # Job 2: Build, scan and publish Docker image
   docker:
-    name: Build and Push Docker Image
+    name: Build, Scan and Push Docker Image
     runs-on: ubuntu-latest
 
-    # Run only after the build job succeeds
+    # Run only if the build job succeeds
     needs: build
 
-    # GitHub environment containing Docker Hub secrets
+    # Publish Docker images only for pushes, not pull requests
+    if: github.event_name == 'push'
+
+    # GitHub Environment containing Docker Hub secrets
     environment: DH_ENV
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Generate an image tag from the Git commit SHA
+      # Generate Docker image tag using Git commit SHA
       - name: Generate Docker Image Tag
         run: echo "TAG=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
-      # Login to Docker Hub using repository/environment secrets
+      # Build Docker image locally
+      - name: Build Docker Image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
+        run: |
+          docker build \
+            -t "$DOCKERHUB_USERNAME/$DH_IMAGE:$TAG" .
+
+      # Install Trivy
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+          trivy --version
+
+      # Scan the locally built Docker image
+      - name: Run Trivy Scan and Save Report
+        id: trivy
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
+        run: |
+          trivy image \
+            --format json \
+            --output trivy-report.json \
+            --severity CRITICAL,HIGH \
+            "$DOCKERHUB_USERNAME/$DH_IMAGE:$TAG"
+
+      # Parse Trivy JSON report
+      - name: Parse Vulnerabilities and Build Summary
+        run: |
+          # Count Critical vulnerabilities
+          CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-report.json)
+
+          # Count High vulnerabilities
+          HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-report.json)
+
+          # Extract top 5 Critical vulnerabilities
+          DETAIL_LIST=$(jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | .[:5] | .[] | "- \(.VulnerabilityID) (\(.PkgName))"' trivy-report.json)
+
+          # Default message when no Critical vulnerabilities exist
+          DETAIL_LIST=${DETAIL_LIST:-"No Critical vulnerabilities found."}
+
+          # Save variables for subsequent steps
+          {
+            echo "CRITICAL=$CRITICAL_COUNT"
+            echo "HIGH=$HIGH_COUNT"
+            echo "VULN_DETAILS<<TRIVY_EOF"
+            printf '%s\n' "$DETAIL_LIST"
+            echo "TRIVY_EOF"
+          } >> "$GITHUB_ENV"
+
+          # Display summary in workflow logs
+          echo "Critical: $CRITICAL_COUNT"
+          echo "High: $HIGH_COUNT"
+          echo "$DETAIL_LIST"
+
+      # Upload JSON report as a workflow artifact
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-report
+          path: trivy-report.json
+          if-no-files-found: ignore
+
+      # Send Telegram notification when vulnerabilities are found
+      - name: Send Telegram Report
+        if: ${{ env.CRITICAL != '0' || env.HIGH != '0' }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MESSAGE=$(printf '%s\n' \
+            "Docker Scan Results" \
+            "" \
+            "Image: ${DH_IMAGE}:${TAG}" \
+            "Critical: ${CRITICAL}" \
+            "High: ${HIGH}" \
+            "" \
+            "Top Critical Issues:" \
+            "${VULN_DETAILS}" \
+            "" \
+            "Check GitHub Actions logs for the full report.")
+
+          curl --fail --silent --show-error \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}"
+
+      # Stop pipeline if Critical or High vulnerabilities exist
+      - name: Fail if Vulnerabilities Found
+        if: ${{ env.CRITICAL != '0' || env.HIGH != '0' }}
+        run: |
+          echo "Security scan failed!"
+          echo "Critical vulnerabilities: $CRITICAL"
+          echo "High vulnerabilities: $HIGH"
+          exit 1
+
+      # Login to Docker Hub only after security checks pass
       - name: Login to Docker Hub
         env:
           DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
@@ -66,19 +178,14 @@ jobs:
             -u "$DOCKERHUB_USERNAME" \
             --password-stdin
 
-      - name: Build Docker Image
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
-        run: |
-          docker build \
-            -t "$DOCKERHUB_USERNAME/$DH_IMAGE:$TAG" .
-
+      # Push image only after passing the security scan
       - name: Push Docker Image
         env:
           DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
         run: |
           docker push "$DOCKERHUB_USERNAME/$DH_IMAGE:$TAG"
 
+      # Always attempt to log out
       - name: Always Logout
         if: always()
-        run: docker logout
+        run: docker logout || true
