@@ -141,18 +141,20 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DOCKERHUB_USERNAME: ${{ secrets.USERNAME }}
         run: |
           MESSAGE=$(printf '%s\n' \
-            "Docker Scan Results" \
+            "🚨 DOCKER SECURITY SCAN REPORT" \
             "" \
-            "Image: ${DH_IMAGE}:${TAG}" \
-            "Critical: ${CRITICAL}" \
-            "High: ${HIGH}" \
+            "🐳 Image: ${DOCKERHUB_USERNAME}/${DH_IMAGE}:${TAG}" \
             "" \
-            "Top Critical Issues:" \
+            "🔴 Critical: ${CRITICAL}" \
+            "🟠 High: ${HIGH}" \
+            "" \
+            "⚠️ Top Critical Vulnerabilities:" \
             "${VULN_DETAILS}" \
             "" \
-            "Check GitHub Actions logs for the full report.")
+            "📋 Check GitHub Actions logs for the full report.")
 
           curl --fail --silent --show-error \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

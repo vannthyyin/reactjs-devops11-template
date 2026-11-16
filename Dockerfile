@@ -1,10 +1,32 @@
-# Layered 
-FROM node:22-alpine
+# Stage 1: Build React application
+FROM node:alpine AS builder
+
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+
+# Copy dependency manifests
+COPY package.json package-lock.json ./
+
+# Install exact dependencies
+RUN npm ci
+
+# Copy application source
 COPY . .
+
+# Build production assets
 RUN npm run build
-RUN npm install -g serve
-EXPOSE 3000
-CMD ["serve", "-s", "build", "-l", "3000"]
+
+
+# Stage 2: Serve application using Nginx
+FROM nginx:alpine AS production
+
+# Copy custom Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy React production build
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expose HTTP port
+EXPOSE 80
+
+# Run Nginx in foreground
+CMD ["nginx", "-g", "daemon off;"]
