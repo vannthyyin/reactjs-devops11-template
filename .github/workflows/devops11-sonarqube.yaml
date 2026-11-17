@@ -1,0 +1,74 @@
+name: React App CI/CD
+
+# Trigger workflow on push or pull request targeting master
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+# Minimum permissions
+permissions:
+  contents: read
+
+# Shared environment variables
+env:
+  SONAR_PROJECT_KEY: devops11-sonarqube-reactjs
+  SONAR_ORGANIZATION: YOUR_ORGANIZATION_KEY
+
+jobs:
+  build-and-push:
+    name: SonarQube Code Analysis
+    runs-on: ubuntu-latest
+    environment: DH_ENV
+
+    steps:
+      # 1. Checkout source code
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 2. Run SonarQube analysis
+      - name: SonarQube Scan
+        id: sonarqube-scan
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.sources=src
+
+      # 3. Check Quality Gate
+      - name: SonarQube Quality Gate Check
+        id: sonarqube-quality-gate-check
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
+        with:
+          pollingTimeoutSec: 300
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # 4. Send Telegram notification if Quality Gate fails
+      - name: Send Telegram SonarQube Failure
+        if: ${{ failure() && steps.sonarqube-quality-gate-check.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+        run: |
+          MESSAGE=$(printf '%s\n' \
+            "❌ SonarQube Quality Gate Failed" \
+            "" \
+            "Project: ${SONAR_PROJECT_KEY}" \
+            "Status: FAILED" \
+            "" \
+            "View report:" \
+            "https://sonarcloud.io/project/overview?id=${SONAR_PROJECT_KEY}")
+
+          curl --fail --silent --show-error \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}"
