@@ -13,8 +13,8 @@ permissions:
 
 # Shared environment variables
 env:
-  SONAR_PROJECT_KEY: devops11-sonarqube-reactjs
-  SONAR_ORGANIZATION: YOUR_ORGANIZATION_KEY
+  SONAR_ORGANIZATION: vannthyyin
+  SONAR_PROJECT_KEY: vannthyyin_reactjs-devops11-template
 
 jobs:
   build-and-push:
