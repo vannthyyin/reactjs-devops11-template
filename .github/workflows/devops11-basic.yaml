@@ -99,31 +99,40 @@ jobs:
       # Parse Trivy JSON report
       - name: Parse Vulnerabilities and Build Summary
         run: |
-          # Count Critical vulnerabilities
+          # Count vulnerabilities
           CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-report.json)
 
-          # Count High vulnerabilities
           HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-report.json)
 
           # Extract top 5 Critical vulnerabilities
-          DETAIL_LIST=$(jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | .[:5] | .[] | "- \(.VulnerabilityID) (\(.PkgName))"' trivy-report.json)
+          CRITICAL_DETAILS=$(jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | .[:5] | .[] | "- \(.VulnerabilityID) (\(.PkgName))"' trivy-report.json)
 
-          # Default message when no Critical vulnerabilities exist
-          DETAIL_LIST=${DETAIL_LIST:-"No Critical vulnerabilities found."}
+          # Extract top 5 High vulnerabilities
+          HIGH_DETAILS=$(jq -r '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | .[:5] | .[] | "- \(.VulnerabilityID) (\(.PkgName))"' trivy-report.json)
+
+          # Default messages
+          CRITICAL_DETAILS=${CRITICAL_DETAILS:-"No Critical vulnerabilities found."}
+          HIGH_DETAILS=${HIGH_DETAILS:-"No High vulnerabilities found."}
 
           # Save variables for subsequent steps
           {
             echo "CRITICAL=$CRITICAL_COUNT"
             echo "HIGH=$HIGH_COUNT"
-            echo "VULN_DETAILS<<TRIVY_EOF"
-            printf '%s\n' "$DETAIL_LIST"
+
+            echo "CRITICAL_DETAILS<<TRIVY_EOF"
+            printf '%s\n' "$CRITICAL_DETAILS"
+            echo "TRIVY_EOF"
+
+            echo "HIGH_DETAILS<<TRIVY_EOF"
+            printf '%s\n' "$HIGH_DETAILS"
             echo "TRIVY_EOF"
           } >> "$GITHUB_ENV"
 
-          # Display summary in workflow logs
+          # Display summary
           echo "Critical: $CRITICAL_COUNT"
+          echo "$CRITICAL_DETAILS"
           echo "High: $HIGH_COUNT"
-          echo "$DETAIL_LIST"
+          echo "$HIGH_DETAILS"
 
       # Upload JSON report as a workflow artifact
       - name: Upload Trivy Report
@@ -149,10 +158,10 @@ jobs:
             "🐳 Image: ${DOCKERHUB_USERNAME}/${DH_IMAGE}:${TAG}" \
             "" \
             "🔴 Critical: ${CRITICAL}" \
-            "🟠 High: ${HIGH}" \
+            "${CRITICAL_DETAILS}" \
             "" \
-            "⚠️ Top Critical Vulnerabilities:" \
-            "${VULN_DETAILS}" \
+            "🟠 High: ${HIGH}" \
+            "${HIGH_DETAILS}" \
             "" \
             "📋 Check GitHub Actions logs for the full report.")
 
