@@ -11,11 +11,6 @@ on:
 permissions:
   contents: read
 
-# Shared environment variables
-env:
-  SONAR_ORGANIZATION: vannthyyin
-  SONAR_PROJECT_KEY: vannthyyin_reactjs-devops11-template
-
 jobs:
   build-and-push:
     name: SonarQube Code Analysis
@@ -37,8 +32,8 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
             -Dsonar.sources=src
 
       # 3. Check Quality Gate
@@ -57,7 +52,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
           MESSAGE=$(printf '%s\n' \
             "❌ SonarQube Quality Gate Failed" \
