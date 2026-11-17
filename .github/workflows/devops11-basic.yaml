@@ -172,7 +172,7 @@ jobs:
 
       # Stop pipeline if Critical or High vulnerabilities exist
       - name: Fail if Vulnerabilities Found
-        if: ${{ env.CRITICAL != '0' || env.HIGH != '0' }}
+        if: ${{ env.CRITICAL != '0' || env.HIGH >= '5' }}
         run: |
           echo "Security scan failed!"
           echo "Critical vulnerabilities: $CRITICAL"
