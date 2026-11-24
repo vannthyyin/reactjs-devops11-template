@@ -23,19 +23,6 @@ function App() {
     localStorage.getItem("tokens") ? true : false
   )
    
-  let a = 10;
-  let b = 20;
-
-  let username = 'admin';
-  let password = "admin";
-
-  const demo1 = () => {
-    console.log(a);
-  }
-
-  const demo2 = () => {
-    console.log(b);
-  }
   const handleLoginCallBack = (value) => {
     setIsValidated(value) // get value from navbar 
   }
